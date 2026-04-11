@@ -1100,3 +1100,196 @@ normalizePseudobulk <- function(rnaSE, sampleColumn = 'Sample'){
     }
 
 CellTypeColumn <- gene_id <- GeneSymbol <- meanValues <- NULL
+
+
+
+
+
+#' @title Functions for identifying genes that pass threshold for a given cell types. 
+#'
+#' @description \code{thresholdGenes} Identifies which genes pass the threshold settings for a given cell type
+#' @param rnaSE A scRNA SummarizedExperiment from makePseudobulkRNA. 
+#' @param factors Categorical factors, found within the sample metadata. If numeric factors are provided,
+#'                   they will be avoided. If genes pass the provided threshold in any group, 
+#'                   they will be returned.
+#' @param detectionThreshold A number between 0 and 1, representing the mean detection rate threshold for a given gene to be modeled. 
+#'   This detection rate is calculated for each sample and cell type during makePseudobulkRNA, and represents the percentage of cells that have a transcript for a given gene. Over all samples, the average has to be above this to be modeled. Default is 0.01. 
+#' @param expressionThreshold A number greater than zero, representing the expression threshold for modeling. A given gene, on average across all samples, expressed above this threshold. The default is 0. 
+#' @param cellCountThreshold The minimum number of cells in a given pseudobulk for the pseudobulk to be included in analysis. If fewer than this number of cells are found, then the sample will be dicarded The number of cells within the pseudobulked scRNA. Default is 10 cells. 
+#' @param verbose Set TRUE to display additional messages. Default is FALSE.
+#'
+#' @return output_vector A linear model
+#'
+#' @export
+#' @keywords data_object_manipulation
+
+thresholdGenes <- function(rnaSE,   
+                           factors = NULL,
+                        cellPopulation = 'ALL',
+                    detectionThreshold = 0.01,
+                    expressionThreshold = 0,
+                    cellCountThreshold = 10){
+    
+  if(isChAIObject(rnaSE, type = 'data', returnType = TRUE) != 'scRNA'){
+
+    stop("rnaSE is not a ChAI scRNA Object (i.e. normalized, pseudobulked via ChAI's makePseudobulkRNA function)")
+
+  }
+
+    # check cell Populations
+  if(!all(cellPopulation %in% names(SummarizedExperiment::assays(rnaSE))) &
+     all(tolower(cellPopulation) != 'all')){
+      
+    stop('rnaSE does not contain an assay that matches the cellPopulation input variable.')
+      
+  }else if(all(tolower(cellPopulation) == 'all')){
+    
+          cellPopulation = SummarizedExperiment::assayNames(rnaSE)
+  }
+
+ if(all(cellPopulation != 'counts')){
+      detectionRates = rnaSE@metadata$detectionRates
+      summarizedData = rnaSE@metadata$summarizedData
+  }else{
+      detectionRates = rnaSE@metadata$detectionRates
+      summarizedData = SummarizedExperiment::colData(rnaSE)
+    }
+
+      
+  if(!methods::is(cellCountThreshold, 'numeric')){
+ 
+      stop('cellCountThreshold must be numeric.')
+      
+ }
+
+  metadf = SummarizedExperiment::colData(rnaSE)
+      
+  if(!is.null(factors) & any(factors %in% colnames(metadf))){
+
+      charClass = factors[unlist(lapply(factors, function(XX) { 
+          class(metadf[,XX]) %in% c('character','factor')}))]
+      
+ }else{
+    
+      charClass = character(0)
+      
+    }
+    
+  geneList = lapply(cellPopulation, function(cellPop){
+          if(cellPop != 'counts'){
+              passThreshold = SummarizedExperiment::assays(summarizedData)[['CellCounts']][cellPop,] > cellCountThreshold 
+          }else{
+              passThreshold = summarizedData$CellCounts > cellCountThreshold 
+          }
+          subDetect = detectionRates[passThreshold,]
+          subRNA = rnaSE[passThreshold,]
+      
+          if(length(charClass) == 0){
+      
+              detectMean <- rowMeans(SummarizedExperiment::assays(subDetect)[[cellPop]])
+              expressMean <- rowMeans(SummarizedExperiment::assays(subRNA)[[cellPop]])
+              
+              intersect(names(which(expressMean > expressionThreshold)),
+                                              names(which(detectMean > detectionThreshold)))
+              
+            }else{
+
+                 #Identify groups for a given categorical variable. 
+              unique(unlist(lapply(charClass, function(XX){
+                    groups = unique(metadf[passThreshold,XX])
+                    groups = groups[!is.na(groups)]
+                    unique(unlist(lapply(groups, function(ZZ){
+                                   #Test to see which genes pass threshold within that group
+                                    specificSamples = metadf[,XX] == ZZ
+                                    specificSamples[is.na(specificSamples)] = FALSE
+                                    detectMean <- rowMeans(SummarizedExperiment::assays(
+                                        subDetect[,specificSamples])[[cellPop]])
+                        
+                                    expressMean <- rowMeans(SummarizedExperiment::assays(
+                                        subRNA[,specificSamples])[[cellPop]])
+                        
+                                    intersect(names(which(expressMean > expressionThreshold)),
+                                              names(which(detectMean > detectionThreshold)))
+                              })))
+                })))
+            }
+            
+      })
+     names(geneList) = cellPopulation
+    return(geneList)
+}
+                                         
+isChAIObject <- function(Object, type = 'data', returnType = FALSE) {
+   
+  if (methods::is(Object, "SummarizedExperiment")){
+
+    if(!any(names(Object@metadata) %in% 'History') & type == 'data'){
+         stop("Object was not generated by ChAI or MOCHA.")
+    } else if(!any(grepl('getSampleTileMatrix|makePseudobulkRNA|importGeneralModality|reformatChromVARList', unlist(Object@metadata$History))) & type == 'data'){
+      stop("Object is not an SampleTile object from MOCHA, or a SummarizedExperiment object from ChAI's makePseudobulkRNA or importGeneralModality.")
+    }else if(!any(grepl('getSampleTileMatrix|makePseudobulkRNA|importGeneralModality|reformatChromVARList', unlist(Object@metadata$History))) & type == 'data'){
+      stop("Object is not an SampleTile object from MOCHA, or a SummarizedExperiment object from ChAI's makePseudobulkRNA, makeChromVAR, or importGeneralModality.")
+    }else if(! type  %in% c('data', 'model')){
+      stop("type not recognized. Must be either 'data' or 'model'")
+    }else if(type == 'data' & returnType){
+
+      specObject <- unlist(lapply(c("transformChAI", 'getSampleTileMatrix',
+                    'makePseudobulkRNA','importGeneralModality', 'reformatChromVARList', 
+                    'runSSGSEA'), function(XX){
+        
+          any(grepl(XX, Object@metadata$History)) 
+        }))
+
+      if(specObject[6]){
+        return('General')
+      }else if(specObject[1]){
+        return('Transformed')
+      }else if(specObject[2]){
+        return('scATAC')
+      }else if(specObject[3]){
+        return('scRNA')
+      }else if(specObject[4]){
+        return('General')
+      }else if(specObject[5]){
+        return('ChromVAR')
+      }else{
+        return('model')
+      }
+            
+    }else if(type == 'data'){
+
+          specObject <- unlist(lapply(c("transformChAI", 'getSampleTileMatrix',
+                    'makePseudobulkRNA','importGeneralModality', 'reformatChromVARList'), function(XX){
+        
+          any(grepl(XX, Object@metadata$History)) 
+        }))
+
+        if(any(specObject)){
+
+            return(TRUE)
+            
+        }
+
+    }
+
+    if(!any(names(Object@metadata) %in% 'Type') & type == 'model'){
+         stop("Object is not a model object generated by ChAI.")
+    } else if(!any(grepl(paste(getModelTypes(), collapse = '|'), Object@metadata$Type)) & type == 'model'){
+         stop("Object is not a ChAI model object.")
+    }else if(type == 'model' & returnType){
+      return(Object@metadata$Type)
+    }
+    return(FALSE)
+
+  }else if(methods::is(Object, "list")){
+        
+       allModels = lapply(Object, function(XX) isChAIObject(XX, type = type, returnType = returnType))
+       allModels = unique(unlist(allModels))
+       allModels = allModels[allModels != 'FALSE']
+       if(length(allModels) > 1){ return(FALSE)}
+       return(allModels)
+          
+    }else{
+      return(FALSE)
+  }
+}                                                                           
