@@ -53,8 +53,6 @@ if(!"BarMixer" %in% rownames(ip)) {
 Rscript -e 'devtools::install_github("GreenleafLab/ArchR", ref="master", repos = BiocManager::repositories())'
 
 
-
-
 install.packages("H5weaver", type = "source", repos = NULL)
 
 required_packages <- c('ggplot2', 'dplyr', 'viridis', 'harmony', 'Matrix', 
@@ -72,9 +70,6 @@ if (length(missing_packages) > 0) {
 ArchR::installExtraPackages()
 
 quit()
-
-
-
 
 
 R 'install.packages("lubridate")'

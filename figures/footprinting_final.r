@@ -7,7 +7,14 @@ library(org.Hs.eg.db)
 library(doParallel)
 
 devtools::load_all('/home/workspace/MOCHA')
-devtools::load_all('ChAI')
+
+# Load local helper implementations copied from ChAI.
+helper_candidates <- c('helper_functions.r', '../helper_functions.r')
+helper_path <- helper_candidates[file.exists(helper_candidates)][1]
+if (is.na(helper_path)) {
+  stop('Could not find helper_functions.r. Run from project root or figures directory.')
+}
+source(helper_path)
 
 footprintList <- c('STAT2', 'IRF9', 'IRF3', 'IRF2', 'IRF1', 'NFIX')
 
